@@ -946,40 +946,62 @@ pub(crate) fn get_row(range: &[u8]) -> Result<u32, XlsxError> {
 /// If the column component in the range is missing, an None is returned for the column.
 fn get_row_and_optional_column(range: &[u8]) -> Result<(u32, Option<u32>), XlsxError> {
     let (mut row, mut col) = (0, 0);
-    let mut pow = 1;
-    let mut readrow = true;
-    for c in range.iter().rev() {
-        match *c {
-            c @ b'0'..=b'9' => {
-                if readrow {
-                    row += ((c - b'0') as u32) * pow;
-                    pow *= 10;
-                } else {
-                    return Err(XlsxError::NumericColumn(c));
+
+    let numeric_split_pos = range.iter().position(|x| *x == b':');
+
+    if let Some(numeric_split_pos) = numeric_split_pos {
+        let col_chars = &range[0..numeric_split_pos];
+        let row_chars = &range[(numeric_split_pos + 1)..range.len()];
+
+        let mut pow = 1;
+        for row_char in row_chars.iter().rev() {
+            row += ((row_char - b'0') as u32) * pow;
+            pow *= 10;
+        }
+
+        let mut pow = 1;
+        for col_char in col_chars.iter().rev() {
+            col += ((col_char - b'0') as u32) * pow;
+            pow *= 10;
+        }
+    } else {
+        let mut pow = 1;
+        let mut readrow = true;
+        for c in range.iter().rev() {
+            match *c {
+                c @ b'0'..=b'9' => {
+                    if readrow {
+                        row += ((c - b'0') as u32) * pow;
+                        pow *= 10;
+                    } else {
+                        return Err(XlsxError::NumericColumn(c));
+                    }
                 }
-            }
-            c @ b'A'..=b'Z' => {
-                if readrow {
-                    pow = 1;
-                    readrow = false;
+                c @ b'A'..=b'Z' => {
+                    if readrow {
+                        pow = 1;
+                        readrow = false;
+                    }
+                    col += ((c - b'A') as u32 + 1) * pow;
+                    pow *= 26;
                 }
-                col += ((c - b'A') as u32 + 1) * pow;
-                pow *= 26;
-            }
-            c @ b'a'..=b'z' => {
-                if readrow {
-                    pow = 1;
-                    readrow = false;
+                c @ b'a'..=b'z' => {
+                    if readrow {
+                        pow = 1;
+                        readrow = false;
+                    }
+                    col += ((c - b'a') as u32 + 1) * pow;
+                    pow *= 26;
                 }
-                col += ((c - b'a') as u32 + 1) * pow;
-                pow *= 26;
+                _ => return Err(XlsxError::Alphanumeric(*c)),
             }
-            _ => return Err(XlsxError::Alphanumeric(*c)),
         }
     }
+
     let row = row
         .checked_sub(1)
         .ok_or(XlsxError::RangeWithoutRowComponent)?;
+
     Ok((row, col.checked_sub(1)))
 }
 
